@@ -183,6 +183,11 @@
   .av-bad{background:var(--red-pale);color:var(--red);}
   .av-warn{background:var(--amber-pale);color:var(--amber);}
   .av-info{background:var(--blue-pale);color:var(--blue);}
+  .slots{max-height:200px;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--surface);}
+  .slots-psi{font-size:12px;font-weight:700;color:var(--ink-soft);margin:6px 0 4px;}
+  .slot-chip{border:1px solid var(--green);color:var(--green-dark);background:var(--green-pale-2);border-radius:999px;padding:5px 11px;font-size:12.5px;font-weight:650;cursor:pointer;margin:0 4px 4px 0;}
+  .slot-chip:hover{background:var(--green-pale);}
+  .slot-chip.sel{background:var(--green);color:#fff;}
 
   @media(max-width:900px){
     .cards{grid-template-columns:repeat(2,1fr);}
@@ -570,7 +575,8 @@ async function abrirModalNuevoParticipante(){
     if(!nombre||!doc){ body.querySelector('#pErr').classList.add('show'); return; }
     var r = await apiPost('crearParticipante', { nombre:nombre, documento:doc, tipoParticipante:body.querySelector('#pTipo').value, sede:body.querySelector('#pSede').value, telefono:body.querySelector('#pTel').value, correo:body.querySelector('#pCorreo').value, psicologoAsignadoId:body.querySelector('#pPsi').value });
     if(!r.ok){ toast(r.error||'Error'); return; }
-    body.remove(); toast('Participante creado'); renderParticipantes();
+    body.remove(); toast('Participante creado');
+    if(r.id && confirm('Participante guardado. ¿Agendar su primera cita ahora?')){ abrirModalNuevaCita('', '', '', r.id); } else { renderParticipantes(); }
   });
 }
 
@@ -954,7 +960,7 @@ async function abrirModalReprogramar(citaId){
 }
 
 // ---------------- MODAL: nueva cita (con control de cruces y horario) ----------------
-async function abrirModalNuevaCita(prefillFecha, prefillHora, prefillPsi){
+async function abrirModalNuevaCita(prefillFecha, prefillHora, prefillPsi, prefillPart){
   var res = await Promise.all([apiGet('participantes'), apiGet('psicologos'), apiGet('citas'), apiGet('horarios')]);
   var parts = (res[0].data||[]).slice().sort(function(a,b){ return String(a.nombre).localeCompare(String(b.nombre)); });
   var psicologos = (res[1].data||[]).filter(function(p){ return p.estado==='activo'; });
@@ -965,6 +971,11 @@ async function abrirModalNuevaCita(prefillFecha, prefillHora, prefillPsi){
     '<div class="field"><label>Participante</label><input type="text" id="cBuscar" placeholder="Buscar por nombre o DNI…" style="margin-bottom:6px;"><select id="cPart"></select></div>'+
     '<div class="field"><label>Psicólogo</label><select id="cPsi">'+psicologos.map(function(p){return '<option value="'+p.id+'"'+(p.id===prefillPsi?' selected':'')+'>'+esc(p.nombre)+'</option>';}).join('')+'</select></div>'+
     '<div class="field-row"><div class="field"><label>Fecha</label><input type="date" id="cFecha" value="'+esc(prefillFecha||'')+'"></div></div>'+
+    '<div style="margin:2px 0 12px;"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">'+
+      '<div style="display:flex;align-items:center;gap:6px;"><button type="button" class="btn" id="cDiaPrev" style="padding:2px 10px;">‹</button><b id="cDiaLabel" style="font-size:13px;min-width:130px;text-align:center;"></b><button type="button" class="btn" id="cDiaNext" style="padding:2px 10px;">›</button></div>'+
+      '<span style="font-size:12.5px;display:inline-flex;align-items:center;gap:5px;"><input type="checkbox" id="cTodas" style="width:auto;padding:0;margin:0;" checked><label for="cTodas" style="display:inline;font-weight:500;margin:0;">Ver todas las psicólogas</label></span></div>'+
+      '<div style="font-size:12px;font-weight:700;color:var(--ink-soft);margin-bottom:4px;">Espacios disponibles ese día (toca uno para elegirlo)</div>'+
+      '<div id="cSlots" class="slots"></div></div>'+
     '<div class="field-row"><div class="field"><label>Hora inicio</label><input type="time" id="cIni" step="900" value="'+esc(prefillHora||'')+'"></div><div class="field"><label>Hora fin</label><input type="time" id="cFin" step="900" value="'+esc(prefillFin)+'"></div></div>'+
     '<div class="field"><label>Modalidad</label><select id="cModalidad"><option>Virtual</option></select></div>'+
     '<div id="cAviso" class="aviso"></div>'+
@@ -982,7 +993,70 @@ async function abrirModalNuevaCita(prefillFecha, prefillHora, prefillPsi){
   }
   llenarParts('');
 
+  // ---- espacios disponibles del día elegido ----
+  function slotsLibres(psiId, fecha, durMin, desde, hasta){
+    var dow = new Date(fecha+'T12:00:00').getDay();
+    var ahora = new Date(), hoy = fmtYmd(ahora), minAhora = ahora.getHours()*60+ahora.getMinutes();
+    var out = [];
+    horarios.filter(function(h){ return h.psicologoId===psiId && Number(h.dia)===dow; }).forEach(function(b){
+      for(var m=hhmmToMin(b.horaInicio); m+durMin<=hhmmToMin(b.horaFin); m+=30){
+        if(m<desde || m+durMin>hasta) continue;
+        if(fecha===hoy && m<=minAhora) continue;
+        if(conflictoLocal(citas, psiId, fecha, minToHhmm(m), minToHhmm(m+durMin), '')) continue;
+        if(out.indexOf(m)<0) out.push(m);
+      }
+    });
+    return out.sort(function(a,b){ return a-b; });
+  }
+  function limitesParticipante(){
+    var pt = parts.filter(function(x){ return x.id===q('#cPart').value; })[0];
+    if(pt && pt.sede==='Chincha' && pt.tipoParticipante==='Colaborador La Calera') return { d:16*60+30, h:19*60, nota:'Titular de Chincha: solo se muestran horarios de 4:30PM a 7:00PM.' };
+    return { d:0, h:24*60, nota:'' };
+  }
+  function dibujarSlots(){
+    var fecha = q('#cFecha').value, box = q('#cSlots');
+    if(!fecha){ q('#cDiaLabel').textContent = '—'; box.innerHTML = '<div class="av-info">Elige una fecha.</div>'; return; }
+    var dia = new Date(fecha+'T12:00:00');
+    q('#cDiaLabel').textContent = DIAS_LARGOS[dia.getDay()]+' '+fmtDM(dia);
+    var todas = q('#cTodas').checked, psiSel = q('#cPsi').value;
+    var dur = (q('#cIni').value && q('#cFin').value && hhmmToMin(q('#cFin').value)>hhmmToMin(q('#cIni').value)) ? hhmmToMin(q('#cFin').value)-hhmmToMin(q('#cIni').value) : 60;
+    var lim = limitesParticipante(), html = '', total = 0;
+    var lista = todas ? psicologos : psicologos.filter(function(p){ return p.id===psiSel; });
+    lista.forEach(function(p){
+      if(!horarios.some(function(h){ return h.psicologoId===p.id; })){
+        if(!todas) html += '<div class="av-info">'+esc(p.nombre)+' aún no tiene horario configurado (⚙ Horario en el calendario).</div>';
+        return;
+      }
+      var sl = slotsLibres(p.id, fecha, dur, lim.d, lim.h);
+      if(!sl.length) return;
+      total += sl.length;
+      html += '<div class="slots-psi">'+esc(p.nombre)+'</div><div>'+sl.map(function(m){
+        var sel = (p.id===psiSel && q('#cFecha').value===fecha && q('#cIni').value===minToHhmm(m));
+        return '<button type="button" class="slot-chip'+(sel?' sel':'')+'" data-psi="'+p.id+'" data-ini="'+minToHhmm(m)+'">'+fmtHoraCorta(m)+'</button>';
+      }).join('')+'</div>';
+    });
+    if(!total) html = '<div class="av-warn">No hay espacios libres este día'+(todas?'':' para esta psicóloga')+'. Prueba otro día con ‹ ›'+(todas?'':' o marca «Ver todas las psicólogas»')+'.</div>' + html;
+    if(lim.nota) html += '<div class="av-info" style="margin-top:6px;">'+lim.nota+'</div>';
+    box.innerHTML = html;
+    box.querySelectorAll('.slot-chip').forEach(function(b){
+      b.addEventListener('click', function(){
+        q('#cPsi').value = b.getAttribute('data-psi');
+        q('#cIni').value = b.getAttribute('data-ini');
+        q('#cFin').value = minToHhmm(hhmmToMin(b.getAttribute('data-ini'))+dur);
+        actualizar();
+      });
+    });
+  }
+  function moverDia(n){
+    var base = q('#cFecha').value ? new Date(q('#cFecha').value+'T12:00:00') : new Date();
+    base.setDate(base.getDate()+n); q('#cFecha').value = fmtYmd(base); actualizar();
+  }
+  q('#cDiaPrev').addEventListener('click', function(){ moverDia(-1); });
+  q('#cDiaNext').addEventListener('click', function(){ moverDia(1); });
+  q('#cTodas').addEventListener('change', actualizar);
+
   function actualizar(){
+    dibujarSlots();
     var items = [];
     var partId = q('#cPart').value;
     if(partId){
@@ -999,6 +1073,18 @@ async function abrirModalNuevaCita(prefillFecha, prefillHora, prefillPsi){
   q('#cIni').addEventListener('change', function(){ if(q('#cIni').value) q('#cFin').value = minToHhmm(hhmmToMin(q('#cIni').value)+60); actualizar(); });
   ['#cPsi','#cFecha','#cFin'].forEach(function(s){ q(s).addEventListener('change', actualizar); });
   q('#cCancel').addEventListener('click', function(){ body.remove(); });
+  if(prefillPart && parts.some(function(x){ return x.id===prefillPart; })) q('#cPart').value = prefillPart;
+  if(!prefillFecha){
+    // sin fecha elegida: se abre en el primer día (de los próximos 21) con espacios libres
+    var dBase = new Date(), hallado = false;
+    for(var i=0;i<21 && !hallado;i++){
+      var dd = new Date(dBase); dd.setDate(dd.getDate()+i);
+      var fy = fmtYmd(dd), lim0 = limitesParticipante();
+      hallado = psicologos.some(function(p){ return slotsLibres(p.id, fy, 60, lim0.d, lim0.h).length>0 && (q('#cTodas').checked || p.id===q('#cPsi').value); });
+      if(hallado) q('#cFecha').value = fy;
+    }
+    if(!hallado) q('#cFecha').value = fmtYmd(dBase);
+  }
   q('#cSave').addEventListener('click', async function(){
     var part=q('#cPart').value, psi=q('#cPsi').value, fecha=q('#cFecha').value, ini=q('#cIni').value, fin=q('#cFin').value, mod=q('#cModalidad').value;
     if(!part||!psi||!fecha||!ini||!fin){ q('#cAviso').innerHTML='<div class="av-bad">Completa todos los campos.</div>'; return; }
