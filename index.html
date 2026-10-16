@@ -393,6 +393,9 @@ async function renderDashboard(){
   var r = await apiGet('dashboard');
   if(!r.ok){ $('mainArea').innerHTML = '<div class="empty">'+esc(r.error||'Error')+'</div>'; return; }
   var d = r.data;
+  var csDash = (await apiGet('citas')).data || [];
+  var ingresaron = {}; csDash.forEach(function(c){ if(c.estado==='Atendida') ingresaron[c.participanteId] = true; });
+  var primerasN = Object.keys(ingresaron).length;
   var alerts = [];
   if(d.solicitudesNuevas) alerts.push('📋 Hay '+d.solicitudesNuevas+' solicitud(es) pendientes de programación.');
   if(d.pendConfirmar) alerts.push('⚠️ Hay '+d.pendConfirmar+' cita(s)/atención(es) pendientes de confirmar.');
@@ -401,6 +404,7 @@ async function renderDashboard(){
 
   var cardsHtml =
     '<div class="cards">'+
+      '<div class="card dot-green" data-go="avance" style="border-left:5px solid var(--green);"><div class="n">'+primerasN+'</div><div class="l">Personas que ya dieron su 1.ª sesión</div></div>'+
       '<div class="card dot-blue" data-go="solicitudes"><div class="n">'+d.solicitudesNuevas+'</div><div class="l">Solicitudes nuevas</div></div>'+
       '<div class="card dot-blue" data-go="agenda"><div class="n">'+d.citasHoy+'</div><div class="l">Citas de hoy</div></div>'+
       '<div class="card dot-blue" data-go="agenda"><div class="n">'+d.citasProximas+'</div><div class="l">Citas próximas</div></div>'+
@@ -1251,6 +1255,45 @@ async function renderAvance(){
 
   var sinAgendar = filas.filter(function(f){ return f.van===0; });
   var html = '<div class="topbar"><h1>Avance de sesiones</h1></div>';
+
+  // ===== INDICADOR DE INGRESO: personas que ya dieron su 1.ª sesión (sigan o no) =====
+  var primerasF = filas.filter(function(f){ return f.atendidas>=1; });
+  var primeraFecha = {};
+  citas.filter(function(c){ return c.estado==='Atendida'; }).forEach(function(c){
+    var k = c.participanteId, d = c.fecha+' '+c.horaInicio;
+    if(!primeraFecha[k] || d < primeraFecha[k].k) primeraFecha[k] = { k:d, fecha:c.fecha, psi:c.psicologoId };
+  });
+  function pct(a,b){ return b ? Math.round(a*100/b)+'%' : '0%'; }
+  html += '<div class="panel" style="border-left:5px solid var(--green);"><div style="display:flex;gap:22px;align-items:center;flex-wrap:wrap;">'+
+    '<div><div style="font-size:46px;font-weight:800;color:var(--green-dark);line-height:1;">'+primerasF.length+'</div>'+
+    '<div style="font-size:13.5px;font-weight:650;margin-top:4px;">personas ya dieron su 1.ª sesión</div></div>'+
+    '<div style="font-size:13px;color:var(--ink-soft);line-height:1.6;">Indicador de ingreso: cuenta a toda persona con al menos una sesión <b>atendida</b>, continúe o no.<br>'+
+    parts.length+' registradas · '+primerasF.length+' ya ingresaron ('+pct(primerasF.length,parts.length)+') · '+(parts.length-primerasF.length)+' aún sin su 1.ª sesión atendida</div></div></div>';
+
+  // embudo: cuántos llegan a cada sesión
+  html += '<div class="panel"><h2>Continuidad: personas que dieron al menos N sesiones</h2><div style="overflow-x:auto;"><table class="tbl"><thead><tr><th></th>'+
+    [1,2,3,4,5,6].map(function(n){ return '<th>'+n+'.ª</th>'; }).join('')+'</tr></thead><tbody>'+
+    '<tr><td><b>Personas</b></td>'+[1,2,3,4,5,6].map(function(n){ return '<td><b>'+filas.filter(function(f){ return f.atendidas>=n; }).length+'</b></td>'; }).join('')+'</tr>'+
+    '<tr><td>% de quienes ingresaron</td>'+[1,2,3,4,5,6].map(function(n){ return '<td>'+pct(filas.filter(function(f){ return f.atendidas>=n; }).length, primerasF.length)+'</td>'; }).join('')+'</tr>'+
+    '</tbody></table></div></div>';
+
+  // ingresos por mes / sede / tipo / psicólogo
+  function conteo(clave){
+    var o = {}; primerasF.forEach(function(f){ var k = clave(f) || 'N/D'; o[k] = (o[k]||0)+1; }); return o;
+  }
+  function tablaConteo(titulo, o){
+    var ks = Object.keys(o).sort();
+    return '<div class="panel" style="flex:1;min-width:240px;"><h2>'+titulo+'</h2><table class="tbl"><tbody>'+
+      ks.map(function(k){ return '<tr><td>'+esc(k)+'</td><td style="text-align:right;"><b>'+o[k]+'</b></td></tr>'; }).join('')+'</tbody></table></div>';
+  }
+  var porMesIng = conteo(function(f){ var m = primeraFecha[f.p.id]; return m ? String(m.fecha).slice(0,7) : ''; });
+  html += '<div style="display:flex;gap:14px;flex-wrap:wrap;">'+
+    tablaConteo('1.as sesiones por mes', porMesIng)+
+    tablaConteo('Por sede', conteo(function(f){ return f.p.sede; }))+
+    tablaConteo('Por tipo', conteo(function(f){ return f.p.tipoParticipante; }))+
+    tablaConteo('1.ª sesión dada por', conteo(function(f){ var m = primeraFecha[f.p.id]; return m ? psiNombre[m.psi] : ''; }))+
+  '</div>';
+  html += '<h2 style="margin:22px 0 4px;font-size:16px;">Dónde van hoy</h2>';
   html += '<p class="sub" style="margin:-6px 0 14px;">«Va en la sesión N» = la sesión N ya fue realizada o está programada. Cada persona tiene hasta '+MAX+' sesiones.</p>';
 
   html += '<div class="cards">';
