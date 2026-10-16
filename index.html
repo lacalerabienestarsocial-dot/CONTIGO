@@ -173,6 +173,17 @@
   .cal-legend span{display:inline-flex;align-items:center;gap:5px;}
   .cal-legend i{width:9px;height:9px;border-radius:50%;display:inline-block;}
 
+  .cal-daycol.hatch{background:repeating-linear-gradient(135deg,#EEF1EF,#EEF1EF 6px,#E3E8E5 6px,#E3E8E5 12px);}
+  .cal-avail{position:absolute;left:0;right:0;background:#fff;border-left:3px solid #7BC88F;pointer-events:none;z-index:0;}
+  .cal-daycol .cal-hourline{position:relative;z-index:1;}
+  .cal-daycol .cal-hourline:hover{background:rgba(20,130,70,0.10);}
+  .cal-daycol .cal-block{z-index:2;}
+  .aviso div{font-size:12.5px;padding:7px 10px;border-radius:8px;margin-bottom:6px;line-height:1.4;}
+  .av-ok{background:var(--green-pale);color:var(--green-dark);}
+  .av-bad{background:var(--red-pale);color:var(--red);}
+  .av-warn{background:var(--amber-pale);color:var(--amber);}
+  .av-info{background:var(--blue-pale);color:var(--blue);}
+
   @media(max-width:900px){
     .cards{grid-template-columns:repeat(2,1fr);}
     .charts{grid-template-columns:1fr;}
@@ -324,6 +335,8 @@ var MENU_ADMIN = [
   {v:'solicitudes', icon:'📋', label:'Solicitudes'},
   {v:'participantes', icon:'👥', label:'Participantes'},
   {v:'agenda', icon:'📅', label:'Agenda'},
+  {v:'calpsi', icon:'🗓️', label:'Calendario por psicólogo'},
+  {v:'avance', icon:'📈', label:'Avance de sesiones'},
   {v:'psicologos', icon:'🧠', label:'Psicólogos'},
   {v:'seguimiento', icon:'🔎', label:'Seguimiento'},
   {v:'reportes', icon:'📊', label:'Reportes'},
@@ -362,6 +375,8 @@ async function render(){
     if(state.view==='participantes') return renderParticipantes();
     if(state.view==='participante-detalle') return renderParticipanteDetalle(state.viewParam);
     if(state.view==='agenda') return renderAgenda();
+    if(state.view==='calpsi') return renderCalPsi();
+    if(state.view==='avance') return renderAvance();
     if(state.view==='pendientes') return renderPendientes();
     if(state.view==='psicologos') return renderPsicologos();
     if(state.view==='seguimiento') return renderSeguimiento();
@@ -749,8 +764,8 @@ async function renderAgenda(){
           '<td>'+esc(c.modalidad)+'</td><td>'+estadoBadge(c.estado)+'</td><td>'+acciones+'</td></tr>';
       }).join('') + '</tbody></table>';
 
-    box.querySelectorAll('[data-confirmar]').forEach(function(b){ b.addEventListener('click', async function(){ var r=await apiPost('confirmarCita',{citaId:b.getAttribute('data-confirmar')}); if(r.ok){toast('Cita confirmada'); renderAgenda();} else toast(r.error); }); });
-    box.querySelectorAll('[data-cancelar]').forEach(function(b){ b.addEventListener('click', async function(){ if(!confirm('¿Cancelar esta cita?'))return; var r=await apiPost('cancelarCita',{citaId:b.getAttribute('data-cancelar')}); if(r.ok){toast('Cita cancelada'); renderAgenda();} else toast(r.error); }); });
+    box.querySelectorAll('[data-confirmar]').forEach(function(b){ b.addEventListener('click', async function(){ var r=await apiPost('confirmarCita',{citaId:b.getAttribute('data-confirmar')}); if(r.ok){toast('Cita confirmada'); render();} else toast(r.error); }); });
+    box.querySelectorAll('[data-cancelar]').forEach(function(b){ b.addEventListener('click', async function(){ if(!confirm('¿Cancelar esta cita?'))return; var r=await apiPost('cancelarCita',{citaId:b.getAttribute('data-cancelar')}); if(r.ok){toast('Cita cancelada'); render();} else toast(r.error); }); });
     box.querySelectorAll('[data-repro]').forEach(function(b){ b.addEventListener('click', function(){ abrirModalReprogramar(b.getAttribute('data-repro')); }); });
     box.querySelectorAll('[data-atender]').forEach(function(b){ b.addEventListener('click', function(){
       var parts = b.getAttribute('data-atender').split('|');
@@ -812,8 +827,8 @@ function verCitaDetalle(citaId, citas, psiById){
   '</div></div>';
   document.body.appendChild(body);
   body.querySelector('#vdCerrar').addEventListener('click', function(){ body.remove(); });
-  if(body.querySelector('[data-confirmar]')) body.querySelector('[data-confirmar]').addEventListener('click', async function(){ var r=await apiPost('confirmarCita',{citaId:c.id}); body.remove(); if(r.ok){toast('Cita confirmada'); renderAgenda();} else toast(r.error); });
-  if(body.querySelector('[data-cancelar]')) body.querySelector('[data-cancelar]').addEventListener('click', async function(){ if(!confirm('¿Cancelar esta cita?')){return;} var r=await apiPost('cancelarCita',{citaId:c.id}); body.remove(); if(r.ok){toast('Cita cancelada'); renderAgenda();} else toast(r.error); });
+  if(body.querySelector('[data-confirmar]')) body.querySelector('[data-confirmar]').addEventListener('click', async function(){ var r=await apiPost('confirmarCita',{citaId:c.id}); body.remove(); if(r.ok){toast('Cita confirmada'); render();} else toast(r.error); });
+  if(body.querySelector('[data-cancelar]')) body.querySelector('[data-cancelar]').addEventListener('click', async function(){ if(!confirm('¿Cancelar esta cita?')){return;} var r=await apiPost('cancelarCita',{citaId:c.id}); body.remove(); if(r.ok){toast('Cita cancelada'); render();} else toast(r.error); });
   if(body.querySelector('[data-repro]')) body.querySelector('[data-repro]').addEventListener('click', function(){ body.remove(); abrirModalReprogramar(c.id); });
   body.querySelectorAll('[data-atender]').forEach(function(b){ b.addEventListener('click', function(){ body.remove(); abrirModalAtencion(c.id, b.getAttribute('data-atender')==='atendida'?'atendida':'no_atendida'); }); });
 }
@@ -822,47 +837,466 @@ async function abrirModalAtencion(citaId, resultado){
   var obs = prompt(resultado==='atendida' ? 'Observación de seguimiento (opcional):' : 'Observación (opcional):');
   if(obs===null) obs='';
   var r = await apiPost('registrarAtencion', {citaId:citaId, resultado:resultado, observacion:obs});
-  if(r.ok){ toast('Registrado'); renderAgenda(); } else toast(r.error);
+  if(r.ok){ toast('Registrado'); render(); } else toast(r.error);
 }
 
+// ---------------- HELPERS: horarios, cruces y número de sesión ----------------
+var DIAS_LARGOS = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+var ESTADOS_OCUPA = ['Programada','Confirmada','Reprogramación solicitada','Atendida'];
+var COLOR_ESTADO = {
+  'Programada':{bg:'#F6D84C',fg:'#3D3300'},
+  'Confirmada':{bg:'#7BC88F',fg:'#0B3D1F'},
+  'Atendida':{bg:'#148246',fg:'#FFFFFF'},
+  'Reprogramación solicitada':{bg:'#F2A65A',fg:'#4A2400'},
+  'No asistió':{bg:'#D9453B',fg:'#FFFFFF'}
+};
+function hhmmToMin(s){ var p=String(s||'0:0').split(':'); return parseInt(p[0],10)*60 + parseInt(p[1]||'0',10); }
+function minToHhmm(m){ return String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0'); }
+function fmtHoraCorta(s){
+  var m = typeof s==='number' ? s : hhmmToMin(s);
+  var h = Math.floor(m/60), mi = m%60;
+  return (h%12||12)+':'+String(mi).padStart(2,'0')+(h>=12&&h<24?'PM':'AM');
+}
+function fmtDM(d){ return String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0'); }
+
+function conflictoLocal(citas, psiId, fecha, ini, fin, excluirId){
+  var a = hhmmToMin(ini), b = hhmmToMin(fin);
+  return citas.filter(function(c){
+    return c.psicologoId===psiId && c.fecha===fecha && ESTADOS_OCUPA.indexOf(c.estado)>-1 && c.id!==excluirId &&
+      a < hhmmToMin(c.horaFin) && b > hhmmToMin(c.horaInicio);
+  })[0] || null;
+}
+// true / false, o null si el psicólogo aún no tiene horario configurado
+function enHorario(horarios, psiId, fecha, ini, fin){
+  var hs = horarios.filter(function(h){ return h.psicologoId===psiId; });
+  if(!hs.length) return null;
+  var dia = new Date(fecha+'T12:00:00').getDay();
+  return hs.some(function(h){ return Number(h.dia)===dia && hhmmToMin(h.horaInicio)<=hhmmToMin(ini) && hhmmToMin(h.horaFin)>=hhmmToMin(fin); });
+}
+function sesionInfo(citas, participanteId){
+  var mias = citas.filter(function(c){ return c.participanteId===participanteId; });
+  var atendidas = mias.filter(function(c){ return c.estado==='Atendida'; }).length;
+  var pendiente = mias.some(function(c){ return ['Programada','Confirmada','Reprogramación solicitada'].indexOf(c.estado)>-1; });
+  return { atendidas:atendidas, pendiente:pendiente };
+}
+// Nº de sesión de una cita = atendidas anteriores del mismo participante + 1
+function numeroSesionDeCita(citas, c){
+  var k = c.fecha+c.horaInicio;
+  return citas.filter(function(x){ return x.participanteId===c.participanteId && x.estado==='Atendida' && (x.fecha+x.horaInicio)<k; }).length + 1;
+}
+async function apiPostForzable(action, payload){
+  var r = await apiPost(action, payload);
+  if(!r.ok && r.code==='FUERA_HORARIO'){
+    if(confirm(r.error+'\n\n¿Programar igualmente fuera de su horario?')){ payload.forzar = true; r = await apiPost(action, payload); }
+  }
+  return r;
+}
+// Devuelve {html, bloquea} con el estado de disponibilidad para mostrar en los modales
+function avisoDisponibilidad(citas, horarios, psicologos, psiId, fecha, ini, fin, excluirId){
+  var items = []; var bloquea = false;
+  var psi = psicologos.filter(function(p){ return p.id===psiId; })[0];
+  var nombre = psi ? psi.nombre : 'el psicólogo';
+  if(psiId && fecha && ini && fin){
+    if(hhmmToMin(fin)<=hhmmToMin(ini)){ items.push(['bad','La hora de fin debe ser mayor que la de inicio.']); bloquea=true; }
+    else {
+      var cf = conflictoLocal(citas, psiId, fecha, ini, fin, excluirId);
+      if(cf){
+        items.push(['bad','⛔ Se cruza con '+esc(cf.participanteNombre||'otra cita')+' ('+fmtHoraCorta(cf.horaInicio)+'–'+fmtHoraCorta(cf.horaFin)+'). Elige otra hora.']);
+        bloquea = true;
+      } else {
+        var eh = enHorario(horarios, psiId, fecha, ini, fin);
+        if(eh===true) items.push(['ok','✔ Libre y dentro del horario de '+esc(nombre)+' ('+fmtHoraCorta(ini)+'–'+fmtHoraCorta(fin)+').']);
+        else if(eh===false) items.push(['warn','⚠ Fuera del horario de atención de '+esc(nombre)+'. Podrás guardarla si confirmas.']);
+        else items.push(['info','ℹ '+esc(nombre)+' aún no tiene horario configurado. Libre de cruces.']);
+      }
+    }
+  }
+  return { html: items.map(function(i){ return '<div class="av-'+i[0]+'">'+i[1]+'</div>'; }).join(''), bloquea: bloquea, items: items };
+}
+
+// ---------------- MODAL: reprogramar ----------------
 async function abrirModalReprogramar(citaId){
+  var res = await Promise.all([apiGet('citas'), apiGet('psicologos'), apiGet('horarios')]);
+  var citas = res[0].data||[], psicologos = res[1].data||[], horarios = res[2].data||[];
+  var orig = citas.filter(function(c){ return c.id===citaId; })[0];
+  if(!orig){ toast('No se encontró la cita'); return; }
+  var durOrig = Math.max(15, hhmmToMin(orig.horaFin)-hhmmToMin(orig.horaInicio)) || 60;
   var body = document.createElement('div');
   body.innerHTML = '<div class="overlay open"><div class="modal"><h2>Reprogramar cita</h2>'+
+    '<p class="sub" style="margin:-6px 0 14px;">'+esc(orig.participanteNombre||'')+' · actual: '+esc(orig.fecha)+' '+fmtHoraCorta(orig.horaInicio)+'</p>'+
+    '<div class="field"><label>Psicólogo</label><select id="rPsi">'+psicologos.filter(function(p){return p.estado==='activo'||p.id===orig.psicologoId;}).map(function(p){return '<option value="'+p.id+'"'+(p.id===orig.psicologoId?' selected':'')+'>'+esc(p.nombre)+'</option>';}).join('')+'</select></div>'+
     '<div class="field-row"><div class="field"><label>Nueva fecha</label><input type="date" id="rFecha"></div></div>'+
-    '<div class="field-row"><div class="field"><label>Hora inicio</label><input type="time" id="rIni"></div><div class="field"><label>Hora fin</label><input type="time" id="rFin"></div></div>'+
-    '<div class="err" id="rErr">Completa fecha y horas.</div>'+
+    '<div class="field-row"><div class="field"><label>Hora inicio</label><input type="time" id="rIni" step="900"></div><div class="field"><label>Hora fin</label><input type="time" id="rFin" step="900"></div></div>'+
+    '<div id="rAviso" class="aviso"></div>'+
     '<div class="modal-actions"><button id="rCancel">Cancelar</button><button class="primary" id="rSave">Confirmar</button></div></div></div>';
   document.body.appendChild(body);
-  body.querySelector('#rCancel').addEventListener('click', function(){ body.remove(); });
-  body.querySelector('#rSave').addEventListener('click', async function(){
-    var fecha=body.querySelector('#rFecha').value, ini=body.querySelector('#rIni').value, fin=body.querySelector('#rFin').value;
-    if(!fecha||!ini||!fin){ body.querySelector('#rErr').classList.add('show'); return; }
-    var r = await apiPost('reprogramarCita', {citaId:citaId, fecha:fecha, horaInicio:ini, horaFin:fin});
-    if(!r.ok){ toast(r.error); return; }
-    body.remove(); toast('Cita reprogramada'); renderAgenda();
+  var q = function(s){ return body.querySelector(s); };
+  function actualizar(){
+    var ini = q('#rIni').value;
+    var av = avisoDisponibilidad(citas, horarios, psicologos, q('#rPsi').value, q('#rFecha').value, ini, q('#rFin').value, orig.id);
+    q('#rAviso').innerHTML = av.html; q('#rSave').disabled = av.bloquea;
+  }
+  q('#rIni').addEventListener('change', function(){ if(q('#rIni').value) q('#rFin').value = minToHhmm(hhmmToMin(q('#rIni').value)+durOrig); actualizar(); });
+  ['#rPsi','#rFecha','#rFin'].forEach(function(s){ q(s).addEventListener('change', actualizar); });
+  q('#rCancel').addEventListener('click', function(){ body.remove(); });
+  q('#rSave').addEventListener('click', async function(){
+    var fecha=q('#rFecha').value, ini=q('#rIni').value, fin=q('#rFin').value;
+    if(!fecha||!ini||!fin){ q('#rAviso').innerHTML='<div class="av-bad">Completa fecha y horas.</div>'; return; }
+    q('#rSave').disabled = true;
+    var r = await apiPostForzable('reprogramarCita', {citaId:citaId, psicologoId:q('#rPsi').value, fecha:fecha, horaInicio:ini, horaFin:fin});
+    if(!r.ok){ q('#rSave').disabled=false; toast(r.error); return; }
+    body.remove(); toast('Cita reprogramada'); render();
   });
 }
 
-async function abrirModalNuevaCita(prefillFecha, prefillHora){
-  var parts = (await apiGet('participantes')).data || [];
-  var psicologos = (await apiGet('psicologos')).data || [];
+// ---------------- MODAL: nueva cita (con control de cruces y horario) ----------------
+async function abrirModalNuevaCita(prefillFecha, prefillHora, prefillPsi){
+  var res = await Promise.all([apiGet('participantes'), apiGet('psicologos'), apiGet('citas'), apiGet('horarios')]);
+  var parts = (res[0].data||[]).slice().sort(function(a,b){ return String(a.nombre).localeCompare(String(b.nombre)); });
+  var psicologos = (res[1].data||[]).filter(function(p){ return p.estado==='activo'; });
+  var citas = res[2].data||[], horarios = res[3].data||[];
+  var prefillFin = prefillHora ? minToHhmm(hhmmToMin(prefillHora)+60) : '';
   var body = document.createElement('div');
   body.innerHTML = '<div class="overlay open"><div class="modal"><h2>Nueva cita</h2>'+
-    '<div class="field"><label>Participante</label><select id="cPart">'+parts.map(function(p){return '<option value="'+p.id+'">'+esc(p.nombre)+' — '+esc(p.documento)+'</option>';}).join('')+'</select></div>'+
-    '<div class="field"><label>Psicólogo</label><select id="cPsi">'+psicologos.map(function(p){return '<option value="'+p.id+'">'+esc(p.nombre)+'</option>';}).join('')+'</select></div>'+
+    '<div class="field"><label>Participante</label><input type="text" id="cBuscar" placeholder="Buscar por nombre o DNI…" style="margin-bottom:6px;"><select id="cPart"></select></div>'+
+    '<div class="field"><label>Psicólogo</label><select id="cPsi">'+psicologos.map(function(p){return '<option value="'+p.id+'"'+(p.id===prefillPsi?' selected':'')+'>'+esc(p.nombre)+'</option>';}).join('')+'</select></div>'+
     '<div class="field-row"><div class="field"><label>Fecha</label><input type="date" id="cFecha" value="'+esc(prefillFecha||'')+'"></div></div>'+
-    '<div class="field-row"><div class="field"><label>Hora inicio</label><input type="time" id="cIni" value="'+esc(prefillHora||'')+'"></div><div class="field"><label>Hora fin</label><input type="time" id="cFin"></div></div>'+
+    '<div class="field-row"><div class="field"><label>Hora inicio</label><input type="time" id="cIni" step="900" value="'+esc(prefillHora||'')+'"></div><div class="field"><label>Hora fin</label><input type="time" id="cFin" step="900" value="'+esc(prefillFin)+'"></div></div>'+
     '<div class="field"><label>Modalidad</label><select id="cModalidad"><option>Virtual</option></select></div>'+
-    '<div class="err" id="cErr">Completa todos los campos.</div>'+
+    '<div id="cAviso" class="aviso"></div>'+
     '<div class="modal-actions"><button id="cCancel">Cancelar</button><button class="primary" id="cSave">Guardar</button></div></div></div>';
   document.body.appendChild(body);
-  body.querySelector('#cCancel').addEventListener('click', function(){ body.remove(); });
-  body.querySelector('#cSave').addEventListener('click', async function(){
-    var part=body.querySelector('#cPart').value, psi=body.querySelector('#cPsi').value, fecha=body.querySelector('#cFecha').value, ini=body.querySelector('#cIni').value, fin=body.querySelector('#cFin').value, mod=body.querySelector('#cModalidad').value;
-    if(!part||!psi||!fecha||!ini||!fin){ body.querySelector('#cErr').classList.add('show'); return; }
-    var r = await apiPost('crearCita', {participanteId:part, psicologoId:psi, fecha:fecha, horaInicio:ini, horaFin:fin, modalidad:mod});
-    if(!r.ok){ toast(r.error); return; }
-    body.remove(); toast('Cita creada'); renderAgenda();
+  var q = function(s){ return body.querySelector(s); };
+
+  function llenarParts(filtro){
+    var f = String(filtro||'').toLowerCase().trim();
+    var actual = q('#cPart').value;
+    var lista = parts.filter(function(p){ return !f || String(p.nombre).toLowerCase().indexOf(f)>-1 || String(p.documento).indexOf(f)>-1; });
+    q('#cPart').innerHTML = lista.map(function(p){
+      return '<option value="'+p.id+'"'+(p.id===actual?' selected':'')+'>'+esc(p.nombre)+' — '+esc(p.documento)+' ('+esc(p.tipoParticipante)+')</option>';
+    }).join('') || '<option value="">Sin resultados</option>';
+  }
+  llenarParts('');
+
+  function actualizar(){
+    var items = [];
+    var partId = q('#cPart').value;
+    if(partId){
+      var si = sesionInfo(citas, partId);
+      if(si.atendidas>=6) items.push('<div class="av-bad">Esta persona ya completó sus 6 sesiones.</div>');
+      else items.push('<div class="av-info">Será la <b>sesión '+(si.atendidas+1)+' de 6</b>'+(si.pendiente?' · ⚠ ya tiene otra cita pendiente':'')+'.</div>');
+    }
+    var av = avisoDisponibilidad(citas, horarios, psicologos, q('#cPsi').value, q('#cFecha').value, q('#cIni').value, q('#cFin').value, '');
+    q('#cAviso').innerHTML = items.join('') + av.html;
+    q('#cSave').disabled = av.bloquea;
+  }
+  q('#cBuscar').addEventListener('input', function(){ llenarParts(q('#cBuscar').value); actualizar(); });
+  q('#cPart').addEventListener('change', actualizar);
+  q('#cIni').addEventListener('change', function(){ if(q('#cIni').value) q('#cFin').value = minToHhmm(hhmmToMin(q('#cIni').value)+60); actualizar(); });
+  ['#cPsi','#cFecha','#cFin'].forEach(function(s){ q(s).addEventListener('change', actualizar); });
+  q('#cCancel').addEventListener('click', function(){ body.remove(); });
+  q('#cSave').addEventListener('click', async function(){
+    var part=q('#cPart').value, psi=q('#cPsi').value, fecha=q('#cFecha').value, ini=q('#cIni').value, fin=q('#cFin').value, mod=q('#cModalidad').value;
+    if(!part||!psi||!fecha||!ini||!fin){ q('#cAviso').innerHTML='<div class="av-bad">Completa todos los campos.</div>'; return; }
+    q('#cSave').disabled = true;
+    var r = await apiPostForzable('crearCita', {participanteId:part, psicologoId:psi, fecha:fecha, horaInicio:ini, horaFin:fin, modalidad:mod});
+    if(!r.ok){ q('#cSave').disabled=false; toast(r.error); return; }
+    body.remove(); toast('Cita creada'); render();
+  });
+  actualizar();
+}
+
+// Si dos citas se cruzan (datos antiguos del Excel), se dibujan lado a lado con borde rojo
+function asignarCarriles(lista){
+  var ord = lista.slice().sort(function(a,b){ return hhmmToMin(a.horaInicio)-hhmmToMin(b.horaInicio); });
+  var cluster = [], finCarril = [], finCluster = 0, salida = [];
+  function cerrar(){ var n = finCarril.length || 1; cluster.forEach(function(x){ x.__n = n; }); }
+  ord.forEach(function(c){
+    var s = hhmmToMin(c.horaInicio), e = hhmmToMin(c.horaFin);
+    if(cluster.length && s >= finCluster){ cerrar(); cluster = []; finCarril = []; finCluster = 0; }
+    var lane = 0;
+    while(lane < finCarril.length && finCarril[lane] > s) lane++;
+    finCarril[lane] = e;
+    var copia = Object.assign({}, c, { __lane: lane, __n: 1 });
+    cluster.push(copia); salida.push(copia); finCluster = Math.max(finCluster, e);
+  });
+  cerrar();
+  return salida;
+}
+
+// ---------------- CALENDARIO POR PSICÓLOGO ----------------
+var calState = { modo:'semana', fecha:new Date(), psi:'' };
+var CAL_PX = 56;
+
+async function renderCalPsi(){
+  var res = await Promise.all([apiGet('citas'), apiGet('psicologos'), apiGet('horarios')]);
+  var citas = res[0].data||[];
+  var psicologos = (res[1].data||[]).filter(function(p){ return p.estado==='activo'; });
+  var horarios = res[2].data||[];
+  var backendViejo = !res[2].ok;
+  var psiById = {}, psiNombre = {}; psicologos.forEach(function(p){ psiById[p.id]=p; psiNombre[p.id]=p.nombre; });
+  if(!calState.psi || !psiById[calState.psi]) calState.psi = psicologos.length ? psicologos[0].id : '';
+
+  var html = '<div class="topbar"><h1>Calendario por psicólogo</h1><button class="btn primary" id="btnNuevaCita2">+ Nueva cita</button></div>';
+  html += '<div class="cal-toolbar">'+
+    '<div class="cal-nav"><button id="calPrev">‹</button><button id="calHoy" style="width:auto;padding:0 10px;">Hoy</button><button id="calNext">›</button></div>'+
+    '<div class="cal-label" id="calLabel"></div>'+
+    '<div class="tabs" id="tabsCal" style="margin:0;"><button data-m="semana">Semana de un psicólogo</button><button data-m="dia">Día · todos</button></div>'+
+    '<select id="calPsi" style="border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:13px;">'+psicologos.map(function(p){return '<option value="'+p.id+'">'+esc(p.nombre)+'</option>';}).join('')+'</select>'+
+    '<button class="btn" id="btnHorario">⚙ Horario</button>'+
+  '</div>';
+  html += '<div id="calBanner"></div><div id="calBox"></div>';
+  html += '<div class="cal-legend" style="margin-top:12px;">'+
+    ['Programada','Confirmada','Atendida','Reprogramación solicitada','No asistió'].map(function(e){ return '<span><i style="background:'+COLOR_ESTADO[e].bg+';border-radius:3px;width:12px;height:12px;"></i>'+e+'</span>'; }).join('')+
+    '<span><i style="background:#fff;border:2px solid #7BC88F;border-radius:3px;width:12px;height:12px;"></i>Horario de atención</span>'+
+    '<span><i style="background:#E6EAE7;border-radius:3px;width:12px;height:12px;"></i>Fuera de horario</span>'+
+    '<span>↻ = reprogramada</span></div>';
+  $('mainArea').innerHTML = html;
+  document.querySelector('#tabsCal [data-m="'+calState.modo+'"]').classList.add('active');
+  $('calPsi').value = calState.psi;
+
+  function columnas(){
+    if(calState.modo==='dia'){
+      var ymd = fmtYmd(calState.fecha);
+      return psicologos.map(function(p){ return { fecha:ymd, psi:p.id, h1:p.nombre, h2:DIAS_LARGOS[calState.fecha.getDay()]+' '+fmtDM(calState.fecha) }; });
+    }
+    var lunes = startOfWeekMonday(calState.fecha), cols = [];
+    var hsPsi = horarios.filter(function(h){ return h.psicologoId===calState.psi; });
+    for(var i=0;i<7;i++){
+      var d = new Date(lunes); d.setDate(d.getDate()+i);
+      var ymd2 = fmtYmd(d);
+      var usaDom = i===6 && !(hsPsi.some(function(h){ return Number(h.dia)===0; }) || citas.some(function(c){ return c.psicologoId===calState.psi && c.fecha===ymd2 && c.estado!=='Cancelada'; }));
+      if(usaDom) continue;
+      cols.push({ fecha:ymd2, psi:calState.psi, h1:DIAS_LARGOS[d.getDay()].toUpperCase(), h2:fmtDM(d)+'/'+d.getFullYear() });
+    }
+    return cols;
+  }
+
+  function citasDeCol(col){ return citas.filter(function(c){ return c.psicologoId===col.psi && c.fecha===col.fecha && c.estado!=='Cancelada'; }); }
+  function bloquesDeCol(col){
+    var dow = new Date(col.fecha+'T12:00:00').getDay();
+    return horarios.filter(function(h){ return h.psicologoId===col.psi && Number(h.dia)===dow; });
+  }
+
+  function draw(){
+    var cols = columnas();
+    // rango de horas visibles
+    var minM = 24*60, maxM = 0;
+    cols.forEach(function(col){
+      bloquesDeCol(col).forEach(function(h){ minM=Math.min(minM,hhmmToMin(h.horaInicio)); maxM=Math.max(maxM,hhmmToMin(h.horaFin)); });
+      citasDeCol(col).forEach(function(c){ minM=Math.min(minM,hhmmToMin(c.horaInicio)); maxM=Math.max(maxM,hhmmToMin(c.horaFin)); });
+    });
+    if(maxM<=minM){ minM=8*60; maxM=20*60; }
+    var startH = Math.max(0, Math.floor(minM/60)), endH = Math.min(24, Math.ceil(maxM/60));
+    if(endH<=startH) endH = startH+1;
+    var horas = []; for(var h=startH; h<endH; h++) horas.push(h);
+    var hoyYmd = fmtYmd(new Date());
+    var gridCols = '64px repeat('+cols.length+', minmax(130px,1fr))';
+
+    var head = '<div class="cal-headrow" style="grid-template-columns:'+gridCols+';"><div class="cal-headcell" style="border-left:0;font-size:11px;">HORA</div>'+
+      cols.map(function(col){
+        var idx = psicologos.findIndex(function(p){ return p.id===col.psi; });
+        var borde = calState.modo==='dia' ? 'border-top:4px solid '+PALETA_PSI[idx%PALETA_PSI.length]+';' : '';
+        return '<div class="cal-headcell'+(col.fecha===hoyYmd?' today':'')+'" style="'+borde+'">'+esc(col.h1)+'<span class="dnum" style="font-size:13px;">'+esc(col.h2)+'</span></div>';
+      }).join('')+'</div>';
+
+    var body = '<div class="cal-body" style="grid-template-columns:'+gridCols+';">'+
+      '<div class="cal-timecol">'+horas.map(function(hh){ return '<div class="cal-timecell" style="height:'+CAL_PX+'px;font-weight:650;color:var(--ink-soft);transform:none;padding-top:3px;">'+fmtHoraCorta(hh*60)+'</div>'; }).join('')+'</div>'+
+      cols.map(function(col){
+        var tieneHor = horarios.some(function(x){ return x.psicologoId===col.psi; });
+        var avail = bloquesDeCol(col).map(function(b){
+          var top = (hhmmToMin(b.horaInicio)-startH*60)*CAL_PX/60, hgt = (hhmmToMin(b.horaFin)-hhmmToMin(b.horaInicio))*CAL_PX/60;
+          return '<div class="cal-avail" style="top:'+top+'px;height:'+hgt+'px;"></div>';
+        }).join('');
+        var lines = horas.map(function(hh){ return '<div class="cal-hourline" style="height:'+CAL_PX+'px;" data-fecha="'+col.fecha+'" data-h="'+hh+'" data-psi="'+col.psi+'"></div>'; }).join('');
+        var bloques = asignarCarriles(citasDeCol(col)).map(function(c){
+          var top = (hhmmToMin(c.horaInicio)-startH*60)*CAL_PX/60;
+          var hgt = Math.max(26,(hhmmToMin(c.horaFin)-hhmmToMin(c.horaInicio))*CAL_PX/60 - 2);
+          var col2 = COLOR_ESTADO[c.estado] || {bg:'#8B9A92',fg:'#fff'};
+          var repro = c.parentId ? '↻ ' : '';
+          var lado = 'left:calc('+(c.__lane*100/c.__n)+'% + 2px);width:calc('+(100/c.__n)+'% - 4px);right:auto;';
+          var cruce = c.__n>1 ? 'outline:2px solid #B3261E;' : '';
+          return '<div class="cal-block" data-vercita="'+c.id+'" style="top:'+top+'px;height:'+hgt+'px;'+lado+cruce+'background:'+col2.bg+';color:'+col2.fg+';">'+
+            '<b>'+repro+esc(c.participanteNombre||'')+'</b>'+fmtHoraCorta(c.horaInicio)+'–'+fmtHoraCorta(c.horaFin)+' · Ses. '+numeroSesionDeCita(citas,c)+'</div>';
+        }).join('');
+        return '<div class="cal-daycol'+(tieneHor?' hatch':'')+'">'+avail+lines+bloques+'</div>';
+      }).join('')+'</div>';
+
+    $('calBox').innerHTML = '<div class="cal-grid-wrap"><div class="cal-grid">'+head+body+'</div></div>';
+
+    $('calBox').querySelectorAll('[data-vercita]').forEach(function(el){
+      el.addEventListener('click', function(ev){ ev.stopPropagation(); verCitaDetalle(el.getAttribute('data-vercita'), citas, psiNombre); });
+    });
+    $('calBox').querySelectorAll('.cal-hourline').forEach(function(el){
+      el.addEventListener('click', function(ev){
+        var rect = el.getBoundingClientRect();
+        var mitad = (ev.clientY-rect.top) > rect.height/2 ? 30 : 0;
+        var ini = minToHhmm(parseInt(el.getAttribute('data-h'),10)*60 + mitad);
+        abrirModalNuevaCita(el.getAttribute('data-fecha'), ini, el.getAttribute('data-psi'));
+      });
+    });
+
+    // etiqueta + avisos
+    if(calState.modo==='dia'){
+      $('calLabel').textContent = DIAS_LARGOS[calState.fecha.getDay()]+' '+calState.fecha.getDate()+' de '+MESES_NOMBRE[calState.fecha.getMonth()];
+    } else {
+      var l0 = startOfWeekMonday(calState.fecha), l6 = new Date(l0); l6.setDate(l6.getDate()+6);
+      var nCitas = cols.reduce(function(a,col){ return a+citasDeCol(col).length; },0);
+      $('calLabel').textContent = l0.getDate()+' — '+l6.getDate()+' de '+MESES_NOMBRE[l6.getMonth()]+' · '+nCitas+' cita(s)';
+    }
+    $('calPsi').style.display = calState.modo==='semana' ? '' : 'none';
+    $('btnHorario').style.display = calState.modo==='semana' ? '' : 'none';
+    var banner = '';
+    if(backendViejo) banner = '<div class="alert" style="margin-bottom:12px;"><span>⚠ Falta actualizar el código de Apps Script (nueva versión) para usar los horarios. Mientras tanto el calendario funciona sin horarios.</span></div>';
+    else if(calState.modo==='semana' && calState.psi && !horarios.some(function(x){ return x.psicologoId===calState.psi; }))
+      banner = '<div class="alert" style="margin-bottom:12px;"><span>ℹ '+esc(psiNombre[calState.psi]||'')+' aún no tiene horario configurado. Pulsa «⚙ Horario» para definirlo.</span></div>';
+    else if(calState.modo==='dia'){
+      var sin = psicologos.filter(function(p){ return !horarios.some(function(x){ return x.psicologoId===p.id; }); }).map(function(p){ return p.nombre; });
+      if(sin.length && !backendViejo) banner = '<div class="alert" style="margin-bottom:12px;"><span>ℹ Sin horario configurado: '+esc(sin.join(', '))+'. Entra a «Semana de un psicólogo» → «⚙ Horario».</span></div>';
+    }
+    $('calBanner').innerHTML = banner;
+  }
+
+  function mover(dir){
+    var d = new Date(calState.fecha);
+    d.setDate(d.getDate() + (calState.modo==='dia' ? dir : dir*7));
+    calState.fecha = d; draw();
+  }
+  $('calPrev').addEventListener('click', function(){ mover(-1); });
+  $('calNext').addEventListener('click', function(){ mover(1); });
+  $('calHoy').addEventListener('click', function(){ calState.fecha = new Date(); draw(); });
+  document.querySelectorAll('#tabsCal button').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      document.querySelectorAll('#tabsCal button').forEach(function(b){ b.classList.remove('active'); });
+      btn.classList.add('active'); calState.modo = btn.getAttribute('data-m'); draw();
+    });
+  });
+  $('calPsi').addEventListener('change', function(){ calState.psi = $('calPsi').value; draw(); });
+  $('btnNuevaCita2').addEventListener('click', function(){ abrirModalNuevaCita('', '', calState.modo==='semana'?calState.psi:''); });
+  $('btnHorario').addEventListener('click', function(){ if(calState.psi) abrirModalHorario(calState.psi, psiNombre[calState.psi], horarios); });
+  draw();
+}
+
+// ---------------- MODAL: horario semanal de un psicólogo ----------------
+function abrirModalHorario(psiId, psiNombre, horarios){
+  var mios = horarios.filter(function(h){ return h.psicologoId===psiId; });
+  var porDia = {};
+  mios.forEach(function(h){ (porDia[h.dia] = porDia[h.dia] || []).push(h); });
+  Object.keys(porDia).forEach(function(k){ porDia[k].sort(function(a,b){ return a.horaInicio<b.horaInicio?-1:1; }); });
+  var sugerido = !mios.length;
+  var orden = [1,2,3,4,5,6,0];
+  var filas = orden.map(function(d){
+    var t = porDia[d] || [];
+    var a = t[0] || (sugerido && d>=1 && d<=5 ? {horaInicio:'15:00', horaFin:'21:00'} : null);
+    var b = t[1] || null;
+    function inp(cls, v){ return '<input type="time" class="'+cls+'" step="900" value="'+esc(v||'')+'" style="width:auto;padding:5px 6px;font-size:13px;">'; }
+    return '<tr data-d="'+d+'"><td style="font-weight:650;">'+DIAS_LARGOS[d]+'</td>'+
+      '<td>'+inp('i1', a&&a.horaInicio)+' – '+inp('f1', a&&a.horaFin)+'</td>'+
+      '<td>'+inp('i2', b&&b.horaInicio)+' – '+inp('f2', b&&b.horaFin)+'</td></tr>';
+  }).join('');
+  var body = document.createElement('div');
+  body.innerHTML = '<div class="overlay open"><div class="modal" style="max-width:600px;"><h2>Horario de '+esc(psiNombre)+'</h2>'+
+    '<p class="sub" style="margin:-6px 0 12px;">Deja vacío el día que no atiende. El turno 2 es opcional (por ejemplo, un horario partido).'+(sugerido?' Te propuse 3:00PM–9:00PM de lunes a viernes: ajústalo y guarda.':'')+'</p>'+
+    '<table class="tbl"><thead><tr><th>Día</th><th>Turno 1</th><th>Turno 2 (opcional)</th></tr></thead><tbody>'+filas+'</tbody></table>'+
+    '<div style="margin:10px 0;"><button class="btn" id="hCopiar">Copiar el lunes a lunes–viernes</button></div>'+
+    '<div class="err" id="hErr">Revisa que la hora de inicio sea menor que la de fin.</div>'+
+    '<div class="modal-actions"><button id="hCancel">Cancelar</button><button class="primary" id="hSave">Guardar horario</button></div></div></div>';
+  document.body.appendChild(body);
+  body.querySelector('#hCancel').addEventListener('click', function(){ body.remove(); });
+  body.querySelector('#hCopiar').addEventListener('click', function(){
+    var lun = body.querySelector('tr[data-d="1"]');
+    ['2','3','4','5'].forEach(function(d){
+      var tr = body.querySelector('tr[data-d="'+d+'"]');
+      ['i1','f1','i2','f2'].forEach(function(c){ tr.querySelector('.'+c).value = lun.querySelector('.'+c).value; });
+    });
+  });
+  body.querySelector('#hSave').addEventListener('click', async function(){
+    var bloques = [], ok = true;
+    body.querySelectorAll('tr[data-d]').forEach(function(tr){
+      var d = parseInt(tr.getAttribute('data-d'),10);
+      [['i1','f1'],['i2','f2']].forEach(function(par){
+        var i = tr.querySelector('.'+par[0]).value, f = tr.querySelector('.'+par[1]).value;
+        if(!i && !f) return;
+        if(!i || !f || i>=f){ ok = false; return; }
+        bloques.push({ dia:d, horaInicio:i, horaFin:f });
+      });
+    });
+    if(!ok){ body.querySelector('#hErr').classList.add('show'); return; }
+    var r = await apiPost('guardarHorarios', { psicologoId:psiId, bloques:bloques });
+    if(!r.ok){ toast(r.error||'No se pudo guardar'); return; }
+    body.remove(); toast('Horario guardado'); render();
+  });
+}
+
+// ---------------- AVANCE DE SESIONES (1.ª, 2.ª, 3.ª…) ----------------
+async function renderAvance(){
+  var res = await Promise.all([apiGet('participantes'), apiGet('citas'), apiGet('psicologos')]);
+  var parts = res[0].data||[], citas = res[1].data||[], psicologos = res[2].data||[];
+  var psiNombre = {}; psicologos.forEach(function(p){ psiNombre[p.id]=p.nombre; });
+  var MAX = 6;
+
+  // psicólogo "actual" del participante = el de su última cita no cancelada (si no, el asignado)
+  function psiDe(p){
+    var mias = citas.filter(function(c){ return c.participanteId===p.id && c.estado!=='Cancelada'; })
+      .sort(function(a,b){ return (a.fecha+a.horaInicio)<(b.fecha+b.horaInicio)?1:-1; });
+    return mias.length ? mias[0].psicologoId : (p.psicologoAsignadoId||'');
+  }
+
+  var filas = parts.map(function(p){
+    var si = sesionInfo(citas, p.id);
+    var van = si.pendiente ? si.atendidas+1 : si.atendidas;   // sesión en la que va
+    if(van>MAX) van = MAX;
+    return { p:p, van:van, atendidas:si.atendidas, pendiente:si.pendiente, psi:psiDe(p) };
+  });
+
+  var sinAgendar = filas.filter(function(f){ return f.van===0; });
+  var html = '<div class="topbar"><h1>Avance de sesiones</h1></div>';
+  html += '<p class="sub" style="margin:-6px 0 14px;">«Va en la sesión N» = la sesión N ya fue realizada o está programada. Cada persona tiene hasta '+MAX+' sesiones.</p>';
+
+  html += '<div class="cards">';
+  html += '<div class="card dot-blue"><div class="n">'+parts.length+'</div><div class="l">Participantes en total</div></div>';
+  for(var n=1;n<=MAX;n++){
+    var enN = filas.filter(function(f){ return f.van===n; });
+    var real = enN.filter(function(f){ return !f.pendiente; }).length;
+    var prog = enN.length - real;
+    html += '<div class="card dot-green"><div class="n">'+enN.length+'</div><div class="l">Van en la sesión '+n+'</div>'+
+      '<div style="font-size:11.5px;color:var(--ink-faint);margin-top:4px;">'+real+' ya realizada · '+prog+' programada</div></div>';
+  }
+  html += '<div class="card dot-amber"><div class="n">'+sinAgendar.length+'</div><div class="l">Sin sesión agendada</div></div>';
+  html += '</div>';
+
+  // matriz por psicólogo
+  var psiIds = psicologos.map(function(p){ return p.id; });
+  html += '<div class="panel"><h2>Por psicólogo</h2><div style="overflow-x:auto;"><table class="tbl"><thead><tr><th>Psicólogo</th>'+
+    [1,2,3,4,5,6].map(function(n){ return '<th>Ses. '+n+'</th>'; }).join('')+'<th>Sin agendar</th><th>Total</th></tr></thead><tbody>';
+  psiIds.concat(['']).forEach(function(pid){
+    var propios = filas.filter(function(f){ return f.psi===pid; });
+    if(!propios.length) return;
+    html += '<tr><td><b>'+esc(pid ? (psiNombre[pid]||pid) : 'Sin psicólogo')+'</b></td>'+
+      [1,2,3,4,5,6].map(function(n){ return '<td>'+propios.filter(function(f){ return f.van===n; }).length+'</td>'; }).join('')+
+      '<td>'+propios.filter(function(f){ return f.van===0; }).length+'</td><td><b>'+propios.length+'</b></td></tr>';
+  });
+  html += '</tbody></table></div></div>';
+
+  // listas de nombres por sesión
+  html += '<div class="panel"><h2>Quiénes van en cada sesión</h2>';
+  for(var k=1;k<=MAX;k++){
+    var lista = filas.filter(function(f){ return f.van===k; });
+    if(!lista.length) continue;
+    html += '<details style="margin-bottom:8px;"><summary style="cursor:pointer;font-weight:650;">Sesión '+k+' — '+lista.length+' persona(s)</summary><ul style="margin:8px 0 0;padding-left:20px;font-size:13.5px;line-height:1.7;">'+
+      lista.map(function(f){
+        return '<li><a href="#" data-ver="'+f.p.id+'">'+esc(f.p.nombre)+'</a> <span style="color:var(--ink-faint);">· '+esc(f.p.tipoParticipante)+' · '+esc(psiNombre[f.psi]||'—')+' · '+(f.pendiente?'sesión '+k+' programada':'sesión '+k+' realizada')+'</span></li>';
+      }).join('')+'</ul></details>';
+  }
+  if(sinAgendar.length){
+    html += '<details style="margin-bottom:8px;"><summary style="cursor:pointer;font-weight:650;">Sin sesión agendada — '+sinAgendar.length+' persona(s)</summary><ul style="margin:8px 0 0;padding-left:20px;font-size:13.5px;line-height:1.7;">'+
+      sinAgendar.map(function(f){ return '<li><a href="#" data-ver="'+f.p.id+'">'+esc(f.p.nombre)+'</a> <span style="color:var(--ink-faint);">· '+esc(f.p.tipoParticipante)+'</span></li>'; }).join('')+'</ul></details>';
+  }
+  html += '</div>';
+
+  $('mainArea').innerHTML = html;
+  document.querySelectorAll('[data-ver]').forEach(function(a){
+    a.addEventListener('click', function(ev){ ev.preventDefault(); goto('participante-detalle', a.getAttribute('data-ver')); });
   });
 }
 
@@ -905,10 +1339,11 @@ async function renderPsicologos(){
   var r = await apiGet('psicologos');
   var rows = r.data || [];
   var html = '<div class="topbar"><h1>Psicólogos</h1><button class="btn primary" id="btnNuevoPsi">+ Nuevo psicólogo</button></div>';
-  html += '<table class="tbl"><thead><tr><th>Nombre</th><th>Correo</th><th>Estado</th></tr></thead><tbody>'+
-    rows.map(function(p){ return '<tr><td>'+esc(p.nombre)+'</td><td>'+esc(p.correo)+'</td><td>'+estadoBadge(p.estado==='activo'?'Confirmada':'Cancelada')+'</td></tr>'; }).join('')+
+  html += '<table class="tbl"><thead><tr><th>Nombre</th><th>Correo</th><th>Estado</th><th></th></tr></thead><tbody>'+
+    rows.map(function(p){ return '<tr><td>'+esc(p.nombre)+'</td><td>'+esc(p.correo)+'</td><td>'+estadoBadge(p.estado==='activo'?'Confirmada':'Cancelada')+'</td><td><button class="btn" data-horario="'+p.id+'">Ver calendario / horario</button></td></tr>'; }).join('')+
     '</tbody></table>';
   $('mainArea').innerHTML = html;
+  document.querySelectorAll('[data-horario]').forEach(function(b){ b.addEventListener('click', function(){ calState.modo='semana'; calState.psi=b.getAttribute('data-horario'); goto('calpsi'); }); });
   $('btnNuevoPsi').addEventListener('click', function(){
     var body = document.createElement('div');
     body.innerHTML = '<div class="overlay open"><div class="modal"><h2>Nuevo psicólogo</h2>'+
